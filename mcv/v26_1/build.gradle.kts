@@ -1,16 +1,18 @@
 plugins {
+    `java-library`
     id("io.papermc.paperweight.userdev")
 }
 
 dependencies {
     compileOnly(project(":core"))
-    paperweight.paperDevBundle("1.21.11-R0.1-SNAPSHOT")
+    paperweight.paperDevBundle("26.1.2.build.+")
 }
 
 paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.MOJANG_PRODUCTION
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(24)
+    disableAutoTargetJvm()
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
 }
 
 tasks.compileJava {

@@ -1,13 +1,13 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
     `java-library`
     `maven-publish`
-    id("com.gradleup.shadow") version "9.3.1"
-    id("io.papermc.paperweight.userdev") version "2.0.0-beta.19" apply false
+    id("com.gradleup.shadow") version "9.4.2"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21" apply false
 }
 
 allprojects {
-    apply(plugin = "java-library")
-
     repositories {
         mavenLocal()
         mavenCentral()
@@ -18,11 +18,11 @@ allprojects {
         maven("https://jitpack.io/")
     }
 
-    tasks.compileJava {
+    tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
     }
 
-    tasks.javadoc {
+    tasks.withType<Javadoc>().configureEach {
         options.encoding = "UTF-8"
     }
 }
@@ -48,33 +48,74 @@ dependencies {
     api(project(":v1_21_9", io.papermc.paperweight.util.constants.REOBF_CONFIG))
     api(project(":v1_21_11", io.papermc.paperweight.util.constants.REOBF_CONFIG))
     api(project(":v26_1", "default"))
+    api(project(":v26_2", "default"))
 }
 
 tasks {
-    shadowJar {
-        archiveClassifier = ""
-        minimize()
-        manifest {
-            attributes["paperweight-mappings-namespace"] = io.papermc.paperweight.util.constants.SPIGOT_NAMESPACE
-        }
-    }
-
-    build {
-        dependsOn(shadowJar)
-    }
-
     compileJava {
         options.release = 16
     }
 
-    processResources {
-        from("resources")
-        expand(
-            "name" to project.name,
-            "version" to project.version,
-            "description" to "${project.description}",
-            "main" to "${project.group}.${project.name}Main"
-        )
+    shadowJar {
+        enabled = false
+    }
+
+    jar {
+        enabled = false
+    }
+
+    val sources = mapOf(
+        "dev" to mapOf("website" to "https://github.com/gecolay/GSit"),
+        "github" to mapOf("website" to "https://github.com/gecolay/GSit"),
+        "modrinth" to mapOf("website" to "https://modrinth.com/plugin/gsit"),
+        "spigot" to mapOf("website" to "https://www.spigotmc.org/resources/GSit.62325"),
+        "paper" to mapOf("website" to "https://hangar.papermc.io/gecolay/GSit")
+    )
+
+    val resourceTasks = sources.mapValues { (sourceName, sourceProps) ->
+        register<ProcessResources>("processResources${sourceName.replaceFirstChar { it.uppercase() }}") {
+            from("resources")
+            into(layout.buildDirectory.dir("generated/resources/$sourceName"))
+
+            val baseProps = project.properties.filterValues { it is String || it is Number || it is Boolean }.mapValues { it.value.toString() }
+            val props = baseProps + sourceProps + mapOf(
+                "source" to sourceName,
+                "main" to "${project.group}.${project.name}Main"
+            )
+
+            inputs.property("source", sourceName)
+            inputs.properties(props)
+
+            expand(props)
+        }
+    }
+
+    val jarTasks = sources.keys.associateWith { sourceName ->
+        register<ShadowJar>("shadowJar${sourceName.replaceFirstChar { it.uppercase() }}") {
+            group = "build"
+
+            val resourceTask = resourceTasks.getValue(sourceName)
+
+            dependsOn(resourceTask)
+
+            archiveClassifier.set("")
+            destinationDirectory.set(layout.buildDirectory.dir(if(sourceName == "dev") "libs" else "libs/$sourceName"))
+
+            from(sourceSets.main.get().output)
+            from(resourceTask)
+
+            configurations = listOf(project.configurations.runtimeClasspath.get())
+
+            minimize()
+
+            manifest {
+                attributes["paperweight-mappings-namespace"] = io.papermc.paperweight.util.constants.SPIGOT_NAMESPACE
+            }
+        }
+    }
+
+    build {
+        dependsOn(jarTasks.values)
     }
 }
 
@@ -84,7 +125,7 @@ publishing {
             groupId = project.group.toString()
             artifactId = project.name
             version = project.version.toString()
-            from(project.components["java"])
+            artifact(tasks.named("shadowJarDev"))
         }
     }
 }

@@ -1,9 +1,9 @@
 package dev.geco.gsit.cmd;
 
 import dev.geco.gsit.GSitMain;
+import dev.geco.gsit.model.Pose;
 import dev.geco.gsit.model.PoseType;
 import dev.geco.gsit.model.StopReason;
-import dev.geco.gsit.model.Pose;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -57,7 +57,7 @@ public class GSpinCommand implements CommandExecutor {
 
         Location playerLocation = player.getLocation();
         Block block = playerLocation.getBlock().isPassable() ? playerLocation.subtract(0, 0.0625, 0).getBlock() : playerLocation.getBlock();
-        if(gSitMain.getConfigService().MATERIALBLACKLIST.contains(block.getType())) {
+        if(gSitMain.getSitService().isBlacklistedSitBlockData(block.getBlockData())) {
             gSitMain.getMessageService().sendMessage(sender, "Messages.action-pose-location-error");
             return true;
         }

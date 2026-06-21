@@ -1,10 +1,10 @@
 package dev.geco.gsit.event;
 
 import dev.geco.gsit.GSitMain;
-import dev.geco.gsit.model.Seat;
-import dev.geco.gsit.model.StopReason;
 import dev.geco.gsit.model.Crawl;
 import dev.geco.gsit.model.Pose;
+import dev.geco.gsit.model.Seat;
+import dev.geco.gsit.model.StopReason;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -20,6 +20,7 @@ import org.bukkit.event.player.PlayerToggleSneakEvent;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.UUID;
 
 public class PlayerEventHandler implements Listener {
 
@@ -27,21 +28,26 @@ public class PlayerEventHandler implements Listener {
     private final long MAX_DOUBLE_SNEAK_TIME = 400;
 
     private final GSitMain gSitMain;
-    private final HashMap<Player, Long> doubleSneakCrawlPlayers = new HashMap<>();
+    private final HashMap<UUID, Long> doubleSneakCrawlPlayers = new HashMap<>();
 
     public PlayerEventHandler(GSitMain gSitMain) {
         this.gSitMain = gSitMain;
     }
 
     @EventHandler
-    public void playerJoinEvent(PlayerJoinEvent event) { gSitMain.getUpdateService().checkForUpdates(event.getPlayer()); }
+    public void playerJoinEvent(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        gSitMain.getUpdateService().checkForUpdates(player);
+        gSitMain.getPacketHandler().setupPlayerPacketHandler(player);
+    }
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void playerQuitEvent(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         stopActions(player, StopReason.DISCONNECT, true);
         gSitMain.getToggleService().clearEntitySitToggleCache(player.getUniqueId());
-        doubleSneakCrawlPlayers.remove(player);
+        doubleSneakCrawlPlayers.remove(player.getUniqueId());
+        gSitMain.getPacketHandler().removePlayerPacketHandler(player);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -91,15 +97,16 @@ public class PlayerEventHandler implements Listener {
 
         if(!player.isValid() || !player.isOnGround() || player.getVehicle() != null || player.isSleeping() || gSitMain.getCrawlService().isPlayerCrawling(player)) return;
 
-        if(!gSitMain.getToggleService().canPlayerUseCrawl(player.getUniqueId())) return;
+        UUID playerId = player.getUniqueId();
+        if(!gSitMain.getToggleService().canPlayerUseCrawl(playerId)) return;
 
-        if(!doubleSneakCrawlPlayers.containsKey(player)) {
-            doubleSneakCrawlPlayers.put(player, System.currentTimeMillis());
+        if(!doubleSneakCrawlPlayers.containsKey(playerId)) {
+            doubleSneakCrawlPlayers.put(playerId, System.currentTimeMillis());
             return;
         }
 
-        long last = doubleSneakCrawlPlayers.get(player);
-        doubleSneakCrawlPlayers.put(player, System.currentTimeMillis());
+        long last = doubleSneakCrawlPlayers.get(playerId);
+        doubleSneakCrawlPlayers.put(playerId, System.currentTimeMillis());
         if(last < System.currentTimeMillis() - MAX_DOUBLE_SNEAK_TIME) return;
 
         if(!gSitMain.getPermissionService().hasPermission(player, "CrawlSneak", "Crawl.*")) return;
@@ -108,7 +115,7 @@ public class PlayerEventHandler implements Listener {
 
         if(!gSitMain.getEnvironmentUtil().canUseInLocation(player.getLocation(), player, "crawl")) return;
 
-        doubleSneakCrawlPlayers.remove(player);
+        doubleSneakCrawlPlayers.remove(playerId);
 
         gSitMain.getCrawlService().startCrawl(player);
     }

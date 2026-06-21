@@ -1,19 +1,19 @@
 package dev.geco.gsit.service;
 
 import dev.geco.gsit.GSitMain;
-import dev.geco.gsit.api.event.EntityStopSitEvent;
 import dev.geco.gsit.api.event.EntitySitEvent;
-import dev.geco.gsit.api.event.PreEntityStopSitEvent;
+import dev.geco.gsit.api.event.EntityStopSitEvent;
 import dev.geco.gsit.api.event.PreEntitySitEvent;
+import dev.geco.gsit.api.event.PreEntityStopSitEvent;
 import dev.geco.gsit.model.Seat;
 import dev.geco.gsit.model.StopReason;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Bisected;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.type.Stairs;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
@@ -24,9 +24,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.logging.Level;
 
 public class SitService {
 
@@ -67,6 +67,21 @@ public class SitService {
         return true;
     }
 
+    public boolean isValidSitBlockData(BlockData blockData) {
+        for(BlockData sitBlockData : gSitMain.getConfigService().S_SITBLOCKDATA.keySet()) if(sitBlockData.matches(blockData)) return true;
+        return gSitMain.getConfigService().S_SITMATERIALS.containsKey(blockData.getMaterial());
+    }
+
+    public double getSitBlockDataHeightOffset(BlockData blockData) {
+        for(Map.Entry<BlockData, Double> sitBlockData : gSitMain.getConfigService().S_SITBLOCKDATA.entrySet()) if(sitBlockData.getKey().matches(blockData)) return sitBlockData.getValue();
+        return gSitMain.getConfigService().S_SITMATERIALS.getOrDefault(blockData.getMaterial(), 0d);
+    }
+
+    public boolean isBlacklistedSitBlockData(BlockData blockData) {
+        for(BlockData sitBlockData : gSitMain.getConfigService().BLOCKDATABLACKLIST) if(sitBlockData.matches(blockData)) return true;
+        return gSitMain.getConfigService().MATERIALBLACKLIST.contains(blockData.getMaterial());
+    }
+
     public Seat createSeat(Block block, LivingEntity entity) { return createSeat(block, entity, true, 0d, 0d, 0d, entity.getLocation().getYaw(), gSitMain.getConfigService().CENTER_BLOCK); }
 
     public Seat createSeat(Block block, LivingEntity entity, boolean canRotate, double xOffset, double yOffset, double zOffset, float seatRotation, boolean sitInBlockCenter) {
@@ -82,14 +97,7 @@ public class SitService {
         Entity seatEntity = gSitMain.getEntityUtil().createSeatEntity(seatLocation, entity, canRotate);
         if(seatEntity == null) return null;
 
-        if(gSitMain.getConfigService().CUSTOM_MESSAGE && entity instanceof Player) {
-            gSitMain.getMessageService().sendActionBarMessage((Player) entity, "Messages.action-sit-info");
-            if(gSitMain.getConfigService().ENHANCED_COMPATIBILITY) {
-                gSitMain.getTaskService().runDelayed(() -> {
-                    gSitMain.getMessageService().sendActionBarMessage((Player) entity, "Messages.action-sit-info");
-                }, entity, 2);
-            }
-        }
+        if(gSitMain.getConfigService().CUSTOM_MESSAGE && entity instanceof Player) gSitMain.getMessageService().sendActionBarMessage((Player) entity, "Messages.action-sit-info");
 
         Seat seat = new Seat(block, seatLocation, entity, seatEntity, returnLocation);
         seats.put(entity.getUniqueId(), seat);
@@ -102,9 +110,10 @@ public class SitService {
 
     public Location getSeatLocation(Block block, Location location, double xOffset, double yOffset, double zOffset, boolean sitInBlockCenter) {
         double additionalOffset = sitInBlockCenter ? block.getBoundingBox().getMinY() + block.getBoundingBox().getHeight() : 0d;
-        additionalOffset = (sitInBlockCenter ? additionalOffset == 0d ? 1d : additionalOffset - block.getY() : additionalOffset) + gSitMain.getConfigService().S_SITMATERIALS.getOrDefault(block.getType(), 0d);
+        double sitBlockDataHeightOffset = getSitBlockDataHeightOffset(block.getBlockData());
+        additionalOffset = (sitInBlockCenter ? additionalOffset == 0d ? 1d : additionalOffset - block.getY() : additionalOffset) + sitBlockDataHeightOffset;
         if(sitInBlockCenter) return block.getLocation().add(0.5d + xOffset, yOffset - baseOffset + additionalOffset, 0.5d + zOffset);
-        return location.add(xOffset, yOffset - baseOffset + gSitMain.getConfigService().S_SITMATERIALS.getOrDefault(block.getType(), 0d), zOffset);
+        return location.add(xOffset, yOffset - baseOffset + sitBlockDataHeightOffset, zOffset);
     }
 
     public void moveSeat(Seat seat, BlockFace blockDirection) {
@@ -147,10 +156,12 @@ public class SitService {
     }
 
     public void handleSafeSeatDismount(Seat seat) {
-        Material blockType = seat.getBlock().getType();
-        Location upLocation = seat.getLocation().add(0d, baseOffset + (Tag.STAIRS.isTagged(blockType) ? STAIR_Y_OFFSET : 0d) - gSitMain.getConfigService().S_SITMATERIALS.getOrDefault(blockType, 0d), 0d);
-
-        Location returnLocation = gSitMain.getConfigService().GET_UP_RETURN ? seat.getReturnLocation() : upLocation;
+        Location returnLocation;
+        if(gSitMain.getConfigService().GET_UP_RETURN) returnLocation = seat.getReturnLocation();
+        else {
+            double sitBlockDataHeightOffset = getSitBlockDataHeightOffset(seat.getBlock().getBlockData());
+            returnLocation = seat.getLocation().add(0d, baseOffset + (Tag.STAIRS.isTagged(seat.getBlock().getType()) ? STAIR_Y_OFFSET : 0d) - sitBlockDataHeightOffset, 0d);
+        }
 
         Entity entity = seat.getEntity();
         Location entityLocation = entity.getLocation();
@@ -158,10 +169,7 @@ public class SitService {
         returnLocation.setYaw(entityLocation.getYaw());
         returnLocation.setPitch(entityLocation.getPitch());
 
-        if(entity.isValid()) {
-            if(gSitMain.isFoliaServer()) gSitMain.getTaskService().run(() -> gSitMain.getEntityUtil().setEntityLocation(entity, returnLocation), entity);
-            else gSitMain.getEntityUtil().setEntityLocation(entity, returnLocation);
-        }
+        if(entity.isValid()) gSitMain.getEntityUtil().setEntityLocation(entity, returnLocation);
         if(seat.getSeatEntity().isValid() && !gSitMain.getVersionManager().isNewerOrVersion(1, 17)) gSitMain.getEntityUtil().setEntityLocation(seat.getSeatEntity(), returnLocation);
     }
 

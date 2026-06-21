@@ -14,15 +14,17 @@ import dev.geco.gsit.cmd.tab.GCrawlTabComplete;
 import dev.geco.gsit.cmd.tab.GSitTabComplete;
 import dev.geco.gsit.event.BlockEventHandler;
 import dev.geco.gsit.event.EntityEventHandler;
-import dev.geco.gsit.event.SitEventHandler;
+import dev.geco.gsit.event.LegacyPacketHandler;
+import dev.geco.gsit.event.PacketHandler;
 import dev.geco.gsit.event.PlayerEventHandler;
 import dev.geco.gsit.event.PlayerSitEventHandler;
+import dev.geco.gsit.event.SitEventHandler;
 import dev.geco.gsit.event.feature.SpinConfusionEventHandler;
-import dev.geco.gsit.metric.BStatsMetric;
 import dev.geco.gsit.link.GriefPreventionLink;
 import dev.geco.gsit.link.PlaceholderAPILink;
 import dev.geco.gsit.link.PlotSquaredLink;
 import dev.geco.gsit.link.WorldGuardLink;
+import dev.geco.gsit.metric.BStatsMetric;
 import dev.geco.gsit.model.PoseType;
 import dev.geco.gsit.service.ConfigService;
 import dev.geco.gsit.service.CrawlService;
@@ -32,28 +34,28 @@ import dev.geco.gsit.service.PermissionService;
 import dev.geco.gsit.service.PlayerSitService;
 import dev.geco.gsit.service.PoseService;
 import dev.geco.gsit.service.SitService;
-import dev.geco.gsit.service.ToggleService;
 import dev.geco.gsit.service.TaskService;
+import dev.geco.gsit.service.ToggleService;
 import dev.geco.gsit.service.UpdateService;
 import dev.geco.gsit.service.VersionService;
 import dev.geco.gsit.service.message.PaperMessageService;
 import dev.geco.gsit.service.message.SpigotMessageService;
-import dev.geco.gsit.util.LegacyEntityUtil;
-import dev.geco.gsit.util.EnvironmentUtil;
 import dev.geco.gsit.util.EntityUtil;
+import dev.geco.gsit.util.EnvironmentUtil;
+import dev.geco.gsit.util.LegacyEntityUtil;
 import dev.geco.gsit.util.PassengerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.yaml.snakeyaml.Yaml;
 
 import java.util.Map;
 
 public class GSitMain extends JavaPlugin {
 
     public static final String NAME = "GSit";
-    public static final String RESOURCE_ID = "62325";
 
     private final int BSTATS_RESOURCE_ID = 4914;
     private static GSitMain gSitMain;
@@ -70,6 +72,7 @@ public class GSitMain extends JavaPlugin {
     private CrawlService crawlService;
     private ToggleService toggleService;
     private EntityEventHandler entityEventHandler;
+    private PacketHandler packetHandler;
     private PassengerUtil passengerUtil;
     private EnvironmentUtil environmentUtil;
     private EntityUtil entityUtil;
@@ -109,6 +112,8 @@ public class GSitMain extends JavaPlugin {
     public ToggleService getToggleService() { return toggleService; }
 
     public EntityEventHandler getEntityEventHandler() { return entityEventHandler; }
+
+    public PacketHandler getPacketHandler() { return packetHandler; }
 
     public PassengerUtil getPassengerUtil() { return passengerUtil; }
 
@@ -159,6 +164,7 @@ public class GSitMain extends JavaPlugin {
     public void onEnable() {
         if(!versionCheck()) return;
 
+        packetHandler = versionService.isNewerOrVersion(26, 1) ? (PacketHandler) versionService.getPackageObjectInstance("event.PacketHandler", this) : new LegacyPacketHandler();
         entityUtil = versionService.isNewerOrVersion(1, 18) ? (EntityUtil) versionService.getPackageObjectInstance("util.EntityUtil", this) : new LegacyEntityUtil(this);
 
         loadPluginDependencies();
@@ -185,6 +191,7 @@ public class GSitMain extends JavaPlugin {
     private void loadSettings(CommandSender sender) {
         if(!connectDatabase(sender)) return;
         toggleService.createDataTables();
+        packetHandler.setupPlayerPacketHandlers();
     }
 
     public void reload(CommandSender sender) {
@@ -209,6 +216,7 @@ public class GSitMain extends JavaPlugin {
         playerSitService.removeAllPlayerSitStacks();
         poseService.removeAllPoses();
         crawlService.removeAllCrawls();
+        packetHandler.removePlayerPacketHandlers();
 
         if(placeholderAPILink != null) placeholderAPILink.unregister();
         if(worldGuardLink != null) worldGuardLink.unregisterFlagHandlers();
@@ -323,10 +331,16 @@ public class GSitMain extends JavaPlugin {
         if(worldGuardLink != null) messageService.sendMessage(sender, "Plugin.plugin-link", "%Link%", Bukkit.getPluginManager().getPlugin("WorldGuard").getName());
     }
 
+    public String getSource() {
+        Map<?, ?> map = (new Yaml()).load(getClassLoader().getResourceAsStream("plugin.yml"));
+        return map.get("source").toString().toLowerCase();
+    }
+
     private void setupBStatsMetric() {
         bStatsMetric = new BStatsMetric(this, BSTATS_RESOURCE_ID);
 
         bStatsMetric.addCustomChart(new BStatsMetric.SimplePie("plugin_language", () -> configService.L_LANG));
+        bStatsMetric.addCustomChart(new BStatsMetric.SimplePie("plugin_source", this::getSource));
         bStatsMetric.addCustomChart(new BStatsMetric.AdvancedPie("minecraft_version_player_amount", () -> Map.of(versionService.getServerVersion(), Bukkit.getOnlinePlayers().size())));
         bStatsMetric.addCustomChart(new BStatsMetric.SingleLineChart("sit_count", () -> sitService.getSitCount()));
         bStatsMetric.addCustomChart(new BStatsMetric.SingleLineChart("sit_time", () -> sitService.getSitTime()));

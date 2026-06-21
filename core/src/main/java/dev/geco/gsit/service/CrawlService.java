@@ -5,8 +5,8 @@ import dev.geco.gsit.api.event.PlayerCrawlEvent;
 import dev.geco.gsit.api.event.PlayerStopCrawlEvent;
 import dev.geco.gsit.api.event.PrePlayerCrawlEvent;
 import dev.geco.gsit.api.event.PrePlayerStopCrawlEvent;
-import dev.geco.gsit.model.StopReason;
 import dev.geco.gsit.model.Crawl;
+import dev.geco.gsit.model.StopReason;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -45,6 +45,8 @@ public class CrawlService {
         if(gSitMain.getConfigService().CUSTOM_MESSAGE) gSitMain.getMessageService().sendActionBarMessage(player, "Messages.action-crawl-info");
 
         Crawl crawl = gSitMain.getEntityUtil().createCrawl(player);
+        if(crawl == null) return null;
+
         crawl.start();
         crawls.put(player.getUniqueId(), crawl);
         crawlCount++;
